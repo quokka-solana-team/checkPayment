@@ -17,12 +17,12 @@
     //! 
     //! * What if they try to pay from different programs at the same time
     //! in the hopes of uploading multiple files?
-    //!     - Different project_id: Since the system creates a new one
+    //!     - Different project_ts: Since the system creates a new one
     //!         everytime a new upload is issued, the seeds won't match the 
-    //!         given project_id and the program will fail
-    //!     - Same project_id, different browsers: If the payer attempts
+    //!         given project_ts and the program will fail
+    //!     - Same project_ts, different browsers: If the payer attempts
     //!         to upload multiple times by issuing an upload request with 
-    //!         different browser instances referencing the same project_id,
+    //!         different browser instances referencing the same project_ts,
     //!         only the first request will pass through. Since the backend
     //!         checks if the invoice balance is 0 (= has been paid) and 
     //!         updates the confirmed_at timestamp, if the timestamp is already
@@ -45,7 +45,7 @@ use {
 
 
 
-declare_id!("9LjA6DjxKDB2uEQPH1kipq5L7Z2hRKGz2yd9EQD9fGhU");
+declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
 #[program]
 pub mod quokka {
@@ -56,7 +56,7 @@ pub mod quokka {
         bump: u8, 
         balance: u64, 
         memo: String,
-        project_id: String
+        project_ts: String
     ) -> ProgramResult {
         // Parse accounts from context
         let invoice = &mut ctx.accounts.invoice;
@@ -65,7 +65,7 @@ pub mod quokka {
         let clock = &ctx.accounts.clock;
         
         // Intialize invoice account
-        invoice.project_id = project_id;
+        invoice.project_ts = project_ts;
         invoice.creditor = creditor.key();
         invoice.debtor = debtor.key();
         invoice.balance = balance;
@@ -145,11 +145,11 @@ pub mod quokka {
 }
 
 #[derive(Accounts)]
-#[instruction(bump: u8, amount: u64, memo: String, project_id:String)]
+#[instruction(bump: u8, amount: u64, memo: String, project_ts:String)]
 pub struct Issue<'info> {
     #[account(
-        init,  
-        // TODO: include project_id here as seed. This is done, so
+        init_if_needed,  
+        // TODO: include project_ts here as seed. This is done, so
         // the program can find the account in case of errors, or
         // if the user didnt pay in full. In that case, the user
         // should submit another tx with the remaining amount
@@ -157,11 +157,11 @@ pub struct Issue<'info> {
         seeds = [
             creditor.key().as_ref(), 
             debtor.key().as_ref(),
-            project_id.as_bytes()
+            project_ts.as_bytes().as_ref()
         ],
         bump = bump,
         payer = creditor,
-        space = 8 + 32 + 32 + 8 + 4 + memo.len() + 8 + 1,
+        space = 8 + 32 + 32 + 8 + 4 + memo.len() + project_ts.len() + 8 + 8 + 4 + 1,
     )]
     pub invoice: Account<'info, Invoice>,
     #[account(mut)]
@@ -179,7 +179,7 @@ pub struct Pay<'info> {
         seeds = [
             creditor.key().as_ref(), 
             debtor.key().as_ref(),
-            invoice.project_id.as_bytes()
+            invoice.project_ts.as_bytes()
         ],
         bump = invoice.bump,
         has_one = creditor,
@@ -202,7 +202,7 @@ pub struct ConfirmSettlement<'info> {
         seeds = [
             creditor.key().as_ref(), 
             debtor.key().as_ref(),
-            invoice.project_id.as_bytes()
+            invoice.project_ts.as_bytes()
         ],
         bump = invoice.bump,
         has_one = creditor,
@@ -219,7 +219,7 @@ pub struct ConfirmSettlement<'info> {
 
 #[account]
 pub struct Invoice {
-    pub project_id: String, // include project_id
+    pub project_ts: String, // include project_ts
     pub creditor: Pubkey,
     pub debtor: Pubkey,
     pub balance: u64,

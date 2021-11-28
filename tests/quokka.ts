@@ -8,6 +8,7 @@ describe('quokka', () => {
   anchor.setProvider(anchor.Provider.env());
 
   const project_id = "juan3uxteK3E4ikyTeAg2AYRKzBS7CJ4dkGmx7zyHMv_123456"
+  const project_ts = project_id.split("_")[1]
 
   const program = anchor.workspace.Quokka as Program<Quokka>;
 
@@ -23,7 +24,7 @@ describe('quokka', () => {
       [
         alice.publicKey.toBuffer(), 
         bob.publicKey.toBuffer(),
-        Buffer.from(anchor.utils.bytes.utf8.encode(project_id.split("_")[1])) // Include project_id as seed (why )
+        Buffer.from(anchor.utils.bytes.utf8.encode(project_ts)) // Include project_id as seed (why )
       ],
       program.programId
     );
@@ -72,7 +73,7 @@ describe('quokka', () => {
       accounts.invoice.bump, 
       new anchor.BN(balance), 
       memo,
-      project_id, {
+      project_ts, {
       accounts: {
         invoice: accounts.invoice.address,
         creditor: accounts.alice.publicKey,
@@ -86,5 +87,12 @@ describe('quokka', () => {
   it('Alice issues invoice', async () => {
     // Setup
     const accounts = await generateAccounts();
+
+    // Test
+    const amount = 5000
+    console.log("Alice initializes an invoice of", amount)
+    const initialBalances = await getBalances(accounts);
+    console.log("Issuing invoice...")
+    await issueInvoice(accounts, amount);
   });
 });
