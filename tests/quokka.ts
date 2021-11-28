@@ -294,7 +294,7 @@ describe("quokka", () => {
     //assert.ok(finalBalances.invoice === 0); // --> Account has balance >0 to pay rent
   });
 
-  it("[Confirm] Backend confirms invoice", async () => {
+  it("[Confirm - Success] Backend confirms invoice", async () => {
     // Setiup
     const accounts = await generateAccounts();
     await issueInvoice(accounts, 1.2 * anchor.web3.LAMPORTS_PER_SOL);
@@ -362,7 +362,7 @@ describe("quokka", () => {
     console.log("invoice after:", invoice_after);
   });
 
-  it("[Confirm] Alice wants to confirm invoice", async () => {
+  it("[Confirm - Error] Alice wants to confirm invoice", async () => {
     // Setiup
     const accounts = await generateAccounts();
     await issueInvoice(accounts, 1.2 * anchor.web3.LAMPORTS_PER_SOL);
@@ -406,6 +406,79 @@ describe("quokka", () => {
         initialBalances.alice - amount
       }`
     );
+
+    // Confirmation via backend
+
+    const invoice_before = await program.account.invoice.fetch(
+      accounts.invoice.address
+    );
+
+    await assert.rejects(
+      program.rpc.confirmSettlement({
+        accounts: {
+          invoice: accounts.invoice.address,
+          creditor: accounts.backend.publicKey,
+          debtor: accounts.alice.publicKey,
+          clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
+        },
+        signers: [accounts.alice],
+      }),
+      {
+        message: `unknown signer: ${accounts.alice.publicKey.toString()}`,
+      }
+    );
+
+    const invoice_after = await program.account.invoice.fetch(
+      accounts.invoice.address
+    );
+    console.log("invoice before:", invoice_before);
+    console.log("invoice after:", invoice_after);
+  });
+
+  it("[Confirm - Error] Backend wants to confirm invoice that has not been paid", async () => {
+    // Setiup
+    const accounts = await generateAccounts();
+    await issueInvoice(accounts, 1.2 * anchor.web3.LAMPORTS_PER_SOL);
+
+    const accSpace = 8 + 32 + 32 + 8 + 4 + project_ts.length + 8 + 8 + 4 + 1;
+    const accRentCost = await getRentCost(accSpace);
+
+    // Test
+    const initialBalances = await getBalances(accounts);
+    const amount = 1.2 * anchor.web3.LAMPORTS_PER_SOL + accRentCost;
+    /* 
+    await program.rpc.pay(new anchor.BN(amount), {
+      accounts: {
+        invoice: accounts.invoice.address,
+        creditor: accounts.backend.publicKey,
+        debtor: accounts.alice.publicKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      },
+      signers: [accounts.alice],
+    });
+
+    // Validate payment
+    const finalBalances = await getBalances(accounts);
+    console.log("Balances", finalBalances);
+    console.log("Initial?", finalBalances.backend + finalBalances.invoice);
+    assert.ok(
+      finalBalances.backend + accRentCost ===
+        initialBalances.backend +
+          initialBalances.invoice +
+          amount -
+          accRentCost,
+      `Backend balances do not back up ${
+        finalBalances.backend + accRentCost
+      } vs ${
+        initialBalances.backend + initialBalances.invoice + amount - accRentCost
+      }`
+    );
+    assert.ok(
+      finalBalances.alice - accRentCost === initialBalances.alice - amount,
+      `Alice balances do not add up ${finalBalances.alice - accRentCost} vs ${
+        initialBalances.alice - amount
+      }`
+    ); */
 
     // Confirmation via backend
 
