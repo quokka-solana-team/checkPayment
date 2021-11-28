@@ -1,7 +1,7 @@
 import * as anchor from '@project-serum/anchor';
 import { Program } from '@project-serum/anchor';
 import { Quokka } from '../target/types/quokka';
-
+import assert from "assert";
 describe('quokka', () => {
 
   // Configure the client to use the local cluster.
@@ -18,21 +18,21 @@ describe('quokka', () => {
    * @returns {object} The accounts needed for a test case
    */
    async function generateAccounts() {
+    const backend = anchor.web3.Keypair.generate();
     const alice = anchor.web3.Keypair.generate();
-    const bob = anchor.web3.Keypair.generate();
     const [invoiceAddress, bump] = await anchor.web3.PublicKey.findProgramAddress(
       [
-        alice.publicKey.toBuffer(), 
-        bob.publicKey.toBuffer(),
+        backend.publicKey.toBuffer(), 
+        alice.publicKey.toBuffer(),
         Buffer.from(anchor.utils.bytes.utf8.encode(project_ts)) // Include project_id as seed (why )
       ],
       program.programId
     );
+    await airdrop(backend.publicKey);
     await airdrop(alice.publicKey);
-    await airdrop(bob.publicKey);
     return {
+      backend,
       alice,
-      bob,
       invoice: { address: invoiceAddress, bump: bump },
     };
   }
@@ -49,20 +49,20 @@ describe('quokka', () => {
   }
 
   /**
-   * getBalances - Fetches the balances of Alice, Bob, and the invoice account.
+   * getBalances - Fetches the balances of backend, alice, and the invoice account.
    *
    * @returns {object} The balances
    */
   async function getBalances(accounts) {
     return {
+      backend: await program.provider.connection.getBalance(accounts.backend.publicKey),
       alice: await program.provider.connection.getBalance(accounts.alice.publicKey),
-      bob: await program.provider.connection.getBalance(accounts.bob.publicKey),
       invoice: await program.provider.connection.getBalance(accounts.invoice.address),
     };
   }
 
   /**
-   * issueInvoice - Issues an invoice with Alice as creditor and Bob as debtor.
+   * issueInvoice - Issues an invoice with backend as creditor and alice as debtor.
    *
    * @param {object} accounts The accounts of the test case
    * @param {number} balance The invoice balance
@@ -76,23 +76,77 @@ describe('quokka', () => {
       project_ts, {
       accounts: {
         invoice: accounts.invoice.address,
-        creditor: accounts.alice.publicKey,
-        debtor: accounts.bob.publicKey,
+        creditor: accounts.backend.publicKey,
+        debtor: accounts.alice.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
         clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
       },
-      signers: [accounts.alice],
+      signers: [accounts.backend],
     });
   }
-  it('Alice issues invoice', async () => {
+  it('Backend issues invoice to Alice', async () => {
     // Setup
     const accounts = await generateAccounts();
 
     // Test
     const amount = 5000
-    console.log("Alice initializes an invoice of", amount)
+    console.log("backend initializes an invoice of", amount)
     const initialBalances = await getBalances(accounts);
     console.log("Issuing invoice...")
     await issueInvoice(accounts, amount);
+
+    // Validate
+    const invoice = await program.account.invoice.fetch(
+      accounts.invoice.address
+    );
+    const finalBalances = await getBalances(accounts);
+    assert.ok(
+      invoice.creditor.toString() === accounts.backend.publicKey.toString()
+    );
+    assert.ok(invoice.debtor.toString() === accounts.alice.publicKey.toString());
+    assert.ok(invoice.balance.toString() === amount.toString());
+    assert.ok(invoice.memo === "Account's memo");
+    assert.ok(
+      finalBalances.backend === initialBalances.backend - finalBalances.invoice
+    );
+    assert.ok(finalBalances.alice === initialBalances.alice);
+    assert.ok(
+      finalBalances.invoice === initialBalances.backend - finalBalances.backend
+    );
   });
+
+  it("Alice pays invoice in part", async () => {
+    // Setup
+    const accounts = await generateAccounts();
+    await issueInvoice(accounts, 1234);
+
+    // Test
+    const initialBalances = await getBalances(accounts);
+    const amount = 1000;
+    await program.rpc.pay(new anchor.BN(amount), {
+      accounts: {
+        invoice: accounts.invoice.address,
+        creditor: accounts.backend.publicKey,
+        debtor: accounts.alice.publicKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      },
+      signers: [accounts.alice],
+    });
+
+    // Validate
+    const invoice = await program.account.invoice.fetch(
+      accounts.invoice.address
+    );
+    const finalBalances = await getBalances(accounts);
+    assert.ok(
+      invoice.creditor.toString() === accounts.backend.publicKey.toString()
+    );
+    assert.ok(invoice.debtor.toString() === accounts.alice.publicKey.toString());
+    assert.ok(invoice.balance.toString() === "234");
+    assert.ok(invoice.memo === "Account's memo");
+    assert.ok(finalBalances.backend === initialBalances.backend + amount);
+    assert.ok(finalBalances.alice === initialBalances.alice - amount);
+    assert.ok(finalBalances.invoice === initialBalances.invoice);
+  });
+  
 });
