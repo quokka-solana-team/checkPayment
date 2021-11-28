@@ -55,7 +55,6 @@ pub mod quokka {
         ctx: Context<Issue>, 
         bump: u8, 
         balance: u64, 
-        memo: String,
         project_ts: String
     ) -> ProgramResult {
         // Parse accounts from context
@@ -69,7 +68,6 @@ pub mod quokka {
         invoice.creditor = creditor.key();
         invoice.debtor = debtor.key();
         invoice.balance = balance;
-        invoice.memo = memo; // TODO: Max limit on memo length?
         invoice.issued_at = clock.unix_timestamp;
         invoice.confirmed_at = 0;
         invoice.bump = bump;
@@ -145,7 +143,7 @@ pub mod quokka {
 }
 
 #[derive(Accounts)]
-#[instruction(bump: u8, amount: u64, memo: String, project_ts:String)]
+#[instruction(bump: u8, amount: u64, project_ts:String)]
 pub struct Issue<'info> {
     #[account(
         init_if_needed,  
@@ -161,7 +159,7 @@ pub struct Issue<'info> {
         ],
         bump = bump,
         payer = creditor,
-        space = 8 + 32 + 32 + 8 + 4 + memo.len() + project_ts.len() + 8 + 8 + 4 + 1,
+        space = 8 + 32 + 32 + 8 + 4 + project_ts.len() + 8 + 8 + 4 + 1,
     )]
     pub invoice: Account<'info, Invoice>,
     #[account(mut)]
@@ -223,7 +221,7 @@ pub struct Invoice {
     pub creditor: Pubkey,
     pub debtor: Pubkey,
     pub balance: u64,
-    pub memo: String,
+    //pub memo: String,
     pub issued_at: i64,
     pub confirmed_at: i64,
     pub bump: u8,

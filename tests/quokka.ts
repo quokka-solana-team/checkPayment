@@ -29,7 +29,7 @@ describe('quokka', () => {
       program.programId
     );
     await airdrop(backend.publicKey);
-    await airdrop(alice.publicKey);
+    await airdrop(alice.publicKey, 5);
     return {
       backend,
       alice,
@@ -42,9 +42,9 @@ describe('quokka', () => {
    *
    * @param {PublicKey} publicKey
    */
-  async function airdrop(publicKey) {
+  async function airdrop(publicKey, amount = 1) {
     await program.provider.connection
-      .requestAirdrop(publicKey, anchor.web3.LAMPORTS_PER_SOL)
+      .requestAirdrop(publicKey, amount * anchor.web3.LAMPORTS_PER_SOL)
       .then((sig) => program.provider.connection.confirmTransaction(sig, "confirmed"));
   }
 
@@ -68,11 +68,10 @@ describe('quokka', () => {
    * @param {number} balance The invoice balance
    */
   async function issueInvoice(accounts, balance) {
-    const memo = `Account's memo`;
+    
     await program.rpc.issue(
       accounts.invoice.bump, 
       new anchor.BN(balance), 
-      memo,
       project_ts, {
       accounts: {
         invoice: accounts.invoice.address,
@@ -84,15 +83,26 @@ describe('quokka', () => {
       signers: [accounts.backend],
     });
   }
+
+  async function getRentCost(space) {
+    const lamports = await program.provider.connection.getMinimumBalanceForRentExemption(space)
+    console.log("Lamport cost:", lamports)
+    return lamports
+  }
+
   it('Backend issues invoice to Alice', async () => {
     // Setup
     const accounts = await generateAccounts();
 
     // Test
-    const amount = 5000
+    const amount = 1 * anchor.web3.LAMPORTS_PER_SOL
     console.log("backend initializes an invoice of", amount)
     const initialBalances = await getBalances(accounts);
     console.log("Issuing invoice...")
+
+    const accSpace = 8 + 32 + 32 + 8 + 4 + project_ts.length + 8 + 8 + 4 + 1
+    await getRentCost(accSpace)
+    
     await issueInvoice(accounts, amount);
 
     // Validate
@@ -105,7 +115,7 @@ describe('quokka', () => {
     );
     assert.ok(invoice.debtor.toString() === accounts.alice.publicKey.toString());
     assert.ok(invoice.balance.toString() === amount.toString());
-    assert.ok(invoice.memo === "Account's memo");
+    
     assert.ok(
       finalBalances.backend === initialBalances.backend - finalBalances.invoice
     );
@@ -118,12 +128,18 @@ describe('quokka', () => {
   it("Alice pays invoice in part", async () => {
     // Setup
     const accounts = await generateAccounts();
-    await issueInvoice(accounts, 1234);
-
+    await issueInvoice(accounts, 1.2 * anchor.web3.LAMPORTS_PER_SOL);
+    
+    const accSpace = 8 + 32 + 32 + 8 + 4 + project_ts.length + 8 + 8 + 4 + 1
+    const accRentCost = await getRentCost(accSpace)
     // Test
     const initialBalances = await getBalances(accounts);
-    const amount = 1000;
-    await program.rpc.pay(new anchor.BN(amount), {
+    console.log("Intial balances", initialBalances)
+    const amount = 1 * anchor.web3.LAMPORTS_PER_SOL + accRentCost;
+    console.log("paying", amount)
+
+    await program.rpc.pay(
+      new anchor.BN(amount), {
       accounts: {
         invoice: accounts.invoice.address,
         creditor: accounts.backend.publicKey,
@@ -138,15 +154,107 @@ describe('quokka', () => {
       accounts.invoice.address
     );
     const finalBalances = await getBalances(accounts);
+    console.log("final balances", finalBalances)
     assert.ok(
-      invoice.creditor.toString() === accounts.backend.publicKey.toString()
+      invoice.creditor.toString() === accounts.backend.publicKey.toString(),
+      "Invoice creditor is not the same as backend acct"
     );
-    assert.ok(invoice.debtor.toString() === accounts.alice.publicKey.toString());
-    assert.ok(invoice.balance.toString() === "234");
-    assert.ok(invoice.memo === "Account's memo");
-    assert.ok(finalBalances.backend === initialBalances.backend + amount);
-    assert.ok(finalBalances.alice === initialBalances.alice - amount);
-    assert.ok(finalBalances.invoice === initialBalances.invoice);
+    assert.ok(
+      invoice.debtor.toString() === accounts.alice.publicKey.toString(),
+      "Invoice payer is not Alice acct"
+    );
+    assert.ok(
+      invoice.balance.toNumber() + accRentCost == 0.2 * anchor.web3.LAMPORTS_PER_SOL,
+      `Invoice balance does not add up ${invoice.balance.toNumber() + accRentCost} vs ${0.2 * anchor.web3.LAMPORTS_PER_SOL}`
+    );
+
+    assert.ok(
+      finalBalances.backend === initialBalances.backend + amount,
+      `Backend balance doesnt add up ${finalBalances.backend} vs ${initialBalances.backend + amount}`
+    );
+    assert.ok(
+      finalBalances.alice == initialBalances.alice - amount,
+      `Alice balance doesnt add up ${finalBalances.alice} vs ${initialBalances.alice - amount}`
+    );
+    assert.ok(
+      finalBalances.invoice === initialBalances.invoice,
+      `??? ${finalBalances.invoice} vs ${initialBalances.invoice}`
+    );
+  });
+
+  it("Alice pays invoice in full", async () => {
+    // Setiup
+    const accounts = await generateAccounts();
+    await issueInvoice(accounts, 1.2 * anchor.web3.LAMPORTS_PER_SOL);
+
+    const accSpace = 8 + 32 + 32 + 8 + 4 + project_ts.length + 8 + 8 + 4 + 1
+    const accRentCost = await getRentCost(accSpace)
+
+    // Test
+    const initialBalances = await getBalances(accounts);
+    const amount = 1.2 * anchor.web3.LAMPORTS_PER_SOL + accRentCost;
+
+    await program.rpc.pay(
+      new anchor.BN(amount), {
+      accounts: {
+        invoice: accounts.invoice.address,
+        creditor: accounts.backend.publicKey,
+        debtor: accounts.alice.publicKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      },
+      signers: [accounts.alice],
+    });
+
+    // Validate
+    const finalBalances = await getBalances(accounts);
+    console.log("Balances", finalBalances)
+    console.log("Initial?", finalBalances.backend + finalBalances.invoice)
+    assert.ok(
+      finalBalances.backend + accRentCost === initialBalances.backend + initialBalances.invoice + amount - accRentCost,
+      `Backend balances do not back up ${finalBalances.backend + accRentCost} vs ${initialBalances.backend + initialBalances.invoice + amount - accRentCost}`
+    );
+    assert.ok(
+      finalBalances.alice - accRentCost === initialBalances.alice - amount,
+      `Alice balances do not add up ${finalBalances.alice - accRentCost} vs ${initialBalances.alice - amount}`
+    );
+    //assert.ok(finalBalances.invoice === 0); // --> Account has balance >0 to pay rent
+  });
+
+  it("Alice overpays invoice", async () => {
+    // Setiup
+    const accounts = await generateAccounts();
+    await issueInvoice(accounts, 1.2 * anchor.web3.LAMPORTS_PER_SOL);
+
+    const accSpace = 8 + 32 + 32 + 8 + 4 + project_ts.length + 8 + 8 + 4 + 1
+    const accRentCost = await getRentCost(accSpace)
+
+    // Test
+    const initialBalances = await getBalances(accounts);
+
+    let amount = 1.2 * anchor.web3.LAMPORTS_PER_SOL + accRentCost;
+    await program.rpc.pay(
+      new anchor.BN(amount * 1.5), {
+      accounts: {
+        invoice: accounts.invoice.address,
+        creditor: accounts.backend.publicKey,
+        debtor: accounts.alice.publicKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      },
+      signers: [accounts.alice],
+    });
+
+    // Validate
+    const finalBalances = await getBalances(accounts);
+    console.log("Balances", finalBalances)
+    assert.ok(
+      finalBalances.backend + accRentCost === initialBalances.backend + initialBalances.invoice + amount - accRentCost,
+      `Backend balances do not back up ${finalBalances.backend + accRentCost} vs ${initialBalances.backend + initialBalances.invoice + amount - accRentCost}`
+    );
+    assert.ok(
+      finalBalances.alice - accRentCost === initialBalances.alice - amount,
+      `Alice balances do not add up ${finalBalances.alice - accRentCost} vs ${initialBalances.alice - amount}`
+    );
+    //assert.ok(finalBalances.invoice === 0);
   });
   
 });
