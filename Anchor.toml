@@ -1,11 +1,11 @@
-[programs.localnet]
-quokka = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+[programs.devnet]
+quokka = "tq3dkNuJDq5ycs4jZBTGEu7Qdvhd5ZfbWwm8oUR42sN"
 
 [registry]
 url = "https://anchor.projectserum.com"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "/Users/juanruizdebustillo/.config/solana/id.json"
 
 [scripts]

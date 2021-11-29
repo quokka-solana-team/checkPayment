@@ -43,9 +43,7 @@ use {
     std::{clone::Clone, cmp::min},
 };
 
-
-
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("tq3dkNuJDq5ycs4jZBTGEu7Qdvhd5ZfbWwm8oUR42sN");
 
 #[program]
 pub mod quokka {
@@ -118,6 +116,12 @@ pub mod quokka {
     ) -> ProgramResult {
         let invoice = &mut ctx.accounts.invoice;
         let clock = &ctx.accounts.clock;
+
+        // require the creditor to be consistent with original invoice
+        require!(
+            ctx.accounts.creditor.key() == invoice.creditor.key(),
+            ErrorCode::WrongCreditor
+        );
 
         // This function marks the invoice as settled. It requires the 
         // invoice to have no balance, as it has been paid. This is 
@@ -235,5 +239,7 @@ pub enum ErrorCode {
     #[msg("Tried to confirm an unsettled invoice")]
     UnsettledConfirmAttempt,
     #[msg("Invoice already settled")]
-    AlreadySettled
+    AlreadySettled,
+    #[msg("Invoice has wrong creditor")]
+    WrongCreditor
 }
